@@ -80,6 +80,7 @@ function render(timestamp: number, state: RootState, frame?: _XRFrame) {
 
 export function createLoop<TCanvas>(roots: Map<TCanvas, Root>) {
   let running = false
+  let useFrameInProgress = false
   let repeat: number
   let frame: number
   let state: RootState
@@ -93,6 +94,7 @@ export function createLoop<TCanvas>(roots: Map<TCanvas, Root>) {
     flushGlobalEffects('before', timestamp)
 
     // Render all roots
+    useFrameInProgress = true
     for (const root of roots.values()) {
       state = root.store.getState()
       // If the frameloop is invalidated, do not run another frame
@@ -104,6 +106,7 @@ export function createLoop<TCanvas>(roots: Map<TCanvas, Root>) {
         repeat += render(timestamp, state)
       }
     }
+    useFrameInProgress = false
 
     // Run after-effects
     flushGlobalEffects('after', timestamp)
@@ -119,11 +122,16 @@ export function createLoop<TCanvas>(roots: Map<TCanvas, Root>) {
     }
   }
 
-  function invalidate(state?: RootState, frames = 1): void {
-    if (!state) return roots.forEach((root) => invalidate(root.store.getState(), frames))
+  function invalidate(state?: RootState): void {
+    if (!state) return roots.forEach((root) => invalidate(root.store.getState()))
     if (state.gl.xr?.isPresenting || !state.internal.active || state.frameloop === 'never') return
-    // Increase frames, do not go higher than 60
-    state.internal.frames = Math.min(60, state.internal.frames + frames)
+    if (useFrameInProgress) {
+      //called from within a useFrame, it means the user wants an additional frame
+      state.internal.frames = 2
+    } else {
+      //the user need a new frame, no need to increment further than 1
+      state.internal.frames = 1
+    }
     // If the render-loop isn't active, start it
     if (!running) {
       running = true
